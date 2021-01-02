@@ -1,7 +1,1 @@
-test/
-test_tfrecords/
-train/
-train_tfrecords/
-sample_submission.csv
-train_annotations.csv
-train.csv
+data/
