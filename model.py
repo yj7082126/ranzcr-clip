@@ -1,23 +1,22 @@
 import torch
+import torch.nn as nn
 import torchvision
-from efficientnet_pytorch import EfficientNet
+from timm.models.efficientnet import tf_efficientnet_b5_ns
 
-
-class Detector(torch.nn.Module):
-    def __init__(self, image_size, model_name="efficientnet-b4"):
+class Detector(nn.Module):
+    def __init__(self, dropout_rate=0.0):
         super(Detector, self).__init__()
         # params 
-        self.image_size = image_size
-        self.feature_extractor = EfficientNet.from_pretrained(model_name)
-        self.dropout = torch.nn.Dropout(0.5)
-        self.fc1 = torch.nn.Linear(1792,256)
-        self.fc2 = torch.nn.Linear(256, 11)
+        self.feature_extractor = tf_efficientnet_b5_ns(pretrained=True, drop_path_rate=0.2)
+        self.avg_pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.dropout = nn.Dropout(dropout_rate)
+        self.fc1 = nn.Linear(2048,256)
+        self.fc2 = nn.Linear(256, 11)
   
     def forward(self, image):
         # get feature
-        feature = self.feature_extractor.extract_features(image) # B, 1792, 16, 16 (B4)
-        feature = torch.nn.AvgPool2d((feature.shape[-2],feature.shape[-1]))(feature)
-        feature = feature.squeeze() # B, 1792
+        feature = self.feature_extractor.forward_features(image) 
+        feature = self.avg_pool(feature).flatten(1)
         feature = self.dropout(feature)
 
         # do fully connected layers

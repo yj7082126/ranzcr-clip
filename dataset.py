@@ -11,18 +11,28 @@ from torchvision import transforms
 
 class ImageDataset(torch.utils.data.Dataset):
     
-    def __init__(self, image_size, file_loc="data/train.csv", 
-                    shuffle=True, do_transform=True):
+    def __init__(self, mode, image_size, file_loc="data/train_new.csv", 
+                    shuffle=True, fold=0, do_transform=True):
+        self.mode = mode
         self.image_size = image_size
         self.do_transform = do_transform
 
-        self.df_train = pd.read_csv(file_loc)
-        cols_dict = dict(self.df_train.dtypes)
+        df = pd.read_csv(file_loc)
+        cols_dict = dict(df.dtypes)
         cols_dict = {k:str(v) for k, v in cols_dict.items()}
-        self.target_cols = [x for x in cols_dict.keys() if cols_dict[x] == 'int64']
+        self.target_cols = [x for x in cols_dict.keys() if cols_dict[x] == 'int64' and x != 'fold']
+        self.img_folder = "train" if "fold" in df.columns else "test"
+
+        if self.mode == "train":
+            self.df = df[df["fold"] != fold]
+        else:
+            if self.img_folder == "train":
+                self.df = df[df["fold"] == fold]
+            else:
+                self.df = df
 
         if shuffle:
-            self.df_train = self.df_train.sample(frac=1.0)
+            self.df = self.df.sample(frac=1.0)
 
         self.img_transform = transforms.Compose([
             transforms.Resize((self.image_size, self.image_size)),
@@ -39,27 +49,45 @@ class ImageDataset(torch.utils.data.Dataset):
             transforms.RandomErasing(p=0.1, scale=(0.02, 0.1), 
                                     ratio=(0.3, 3.3), inplace=True),
         ])
+        self.weak_transform = transforms.Compose([
+            transforms.Resize((self.image_size, self.image_size)),
+            transforms.RandomGrayscale(p=1),
+            transforms.ToTensor()
+        ])
 
     def __getitem__(self, index):
-        row = self.df_train.iloc[index]
-        img_path = Path(f"data/train/{row['StudyInstanceUID']}.jpg")
+        row = self.df.iloc[index]
+
+        img_path = Path(f"data/{self.img_folder}/{row['StudyInstanceUID']}.jpg")
         img = Image.open(img_path)
-        if self.do_transform:
+        if self.mode == "train" and self.do_transform:
             img = self.img_transform(img)
+        else:
+            img = self.weak_transform(img)
+        img = img.repeat(3,1,1)
 
         label = np.array(row[self.target_cols]).astype(np.float32)
         label = torch.from_numpy(label)
-        return img, label
+
+        img_name = row['StudyInstanceUID']
+
+        return {
+            "image"     : img, 
+            "label"     : label,
+            "img_name"  : img_name
+        }
 
     def __len__(self):
-        return len(self.df_train)
+        return len(self.df)
 
 if __name__ == "__main__":
-    sample_dataset = ImageDataset(256)
+    sample_dataset = ImageDataset("test", 256)
 
     fig, ax = plt.subplots(2, 4)
     for i in range(8):
-        (sample, label) = sample_dataset[i]
-        ax[i // 4][i % 4].imshow(sample.permute(1,2,0).numpy()[:,:,0])
+        imgdict = sample_dataset[i]
+        ax[i // 4][i % 4].imshow(
+            imgdict["image"].permute(1,2,0).numpy()[:,:,0]
+        )
 
     plt.show()
